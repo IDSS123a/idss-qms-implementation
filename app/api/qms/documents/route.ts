@@ -10,7 +10,9 @@ export const runtime = 'nodejs'
 async function getContext(request: Request) {
   const session = await auth.api.getSession({ headers: request.headers })
   if (!session?.user) return null
-  const role = roleForEmail(session.user.email) as QmsRole
+  const storedRole = await db.execute(sql`select role from qms_user_role where user_id = ${session.user.id}::uuid limit 1`)
+  const candidateRole = String(storedRole.rows[0]?.role ?? roleForEmail(session.user.email))
+  const role = (['superadmin', 'admin', 'user'].includes(candidateRole) ? candidateRole : 'user') as QmsRole
   const workspace = await db.execute(sql`select id, name, slug from qms_workspace order by created_at asc limit 1`)
   const workspaceId = workspace.rows[0]?.id
   return { user: session.user, role, workspaceId }
@@ -24,7 +26,7 @@ export async function GET(request: Request) {
   const context = await getContext(request)
   if (!context) return NextResponse.json({ error: 'Prijava je obavezna.' }, { status: 401 })
   if (!context.workspaceId) return NextResponse.json({ documents: [], workspace: null })
-  const documents = await db.execute(sql`select id, title, code, type, status, created_by, updated_by, created_at, updated_at from qms_document where workspace_id = ${context.workspaceId}::uuid order by updated_at desc`)
+  const documents = await db.execute(sql`select d.id, d.title, d.code, d.type, d.status, d.created_by, d.updated_by, d.created_at, d.updated_at, (select v.version from qms_document_version v where v.document_id = d.id and v.workspace_id = d.workspace_id order by v.created_at desc limit 1) as version from qms_document d where d.workspace_id = ${context.workspaceId}::uuid order by d.updated_at desc`)
   await audit(context.user.id, String(context.workspaceId), 'read', 'document_list', null, { count: documents.rows.length })
   return NextResponse.json({ documents: documents.rows, workspace: context.workspaceId, role: context.role })
 }
