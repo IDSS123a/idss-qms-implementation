@@ -1,4 +1,6 @@
-import { createUIMessageStream, createUIMessageStreamResponse, generateText } from 'ai'
+import { createUIMessageStream, createUIMessageStreamResponse, generateText, gateway } from 'ai'
+import { readFile } from 'node:fs/promises'
+import path from 'node:path'
 
 export const runtime = 'nodejs'
 
@@ -25,9 +27,9 @@ function getPrompt(body: unknown) {
 }
 
 async function getReferenceLibrary() {
-  const response = await fetch(new URL('/qms-manifest.json', process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000'))
-  if (!response.ok) return 'Referentna biblioteka nije dostupna.'
-  const manifest = await response.json() as Array<{ path?: string; name?: string; code?: string }>
+  const manifestPath = path.join(process.cwd(), 'public', 'qms-manifest.json')
+  const manifestText = await readFile(manifestPath, 'utf8')
+  const manifest = JSON.parse(manifestText) as Array<{ path?: string; name?: string; code?: string }>
   return manifest.filter((item) => typeof item.path === 'string' && typeof item.name === 'string')
     .map((item) => `${item.code ?? 'Dokument'} | ${item.path} | ${item.name}`).join('\n')
 }
@@ -37,6 +39,12 @@ const systemPrompt = `Ti si IDSS-QMS stručni AI asistent za upravljanje kvalite
 Kada korisnik traži novu proceduru, ne daj kratak nacrt. Prvo razjasni samo podatke koji stvarno nedostaju, a zatim izradi detaljan radni dokument sa najmanje: šifrom i nazivom, svrhom, područjem primjene, povezanim dokumentima i ISO 9001:2015 tačkama, definicijama, odgovornostima, ulazima i izlazima procesa, detaljnim koracima sa kriterijima i zapisima, rizicima i prilikama, pokazateljima uspješnosti, upravljanjem nesukladnostima, kontrolom dokumentovanih informacija, revizijom i odobravanjem. Obavezno predloži i kompletan paket pratećih dokumenata: obrasce, kontrolne liste, planove, registre, zapisnike, izvještaje i evidencije, sa šiframa, vlasnikom, mjestom čuvanja i rokom čuvanja.
 
 Ne izmišljaj da je dokument stvarno odobren, potpisan ili usklađen ako to nije potvrđeno. Jasno označi pretpostavke, otvorena pitanja i status NACRT ZA PREGLED. Koristi terminologiju QP, obrazac, zapis, registar, kontrolna lista, odgovorna osoba, rok čuvanja i revizija. Ne koristi hrvatizme ili srbizme kada postoji prirodan bosanski izraz.`
+
+function createFallbackProcedure(prompt: string) {
+  const qp10 = /qp[- _]?10|novozaposlen/i.test(prompt)
+  if (!qp10) return `Nije moguće dobiti AI odgovor jer AI servis trenutno nije aktivan. Za zahtjev „${prompt}“ pripremite šifru procedure, naziv, vlasnika procesa i očekivane zapise, pa pokušajte ponovo.`
+  return `NACRT ZA PREGLED\n\nQP-10 — UVOĐENJE NOVOZAPOSLENIH\n\n1. Svrha\nOva procedura utvrđuje način planiranja, prijema, uvođenja, osposobljavanja i praćenja rada novozaposlene osobe kako bi se osigurala njena kompetentnost i razumijevanje zahtjeva sistema upravljanja kvalitetom.\n\n2. Područje primjene\nPrimjenjuje se na sve novozaposlene osobe, pripravnike, osobe angažovane po ugovoru i osobe koje mijenjaju radno mjesto ili preuzimaju nove odgovornosti.\n\n3. Odgovornosti\n• Rukovodstvo odobrava potrebu za zapošljavanjem i obezbjeđuje resurse.\n• Odgovorna osoba procesa priprema plan uvođenja i prati njegovo izvršenje.\n• Neposredni rukovodilac definiše radne zadatke, rizike i potrebne kompetencije.\n• Mentor pruža praktične upute i evidentira napredak.\n• Novozaposlena osoba izvršava plan, postavlja pitanja i potvrđuje razumijevanje zahtjeva.\n\n4. Tok postupka\n1) Utvrditi radno mjesto, odgovornosti, ovlaštenja i potrebne kompetencije.\n2) Pripremiti radno mjesto, pristupe, opremu i obaveznu dokumentaciju.\n3) Održati uvodni razgovor o politici kvaliteta, ciljevima, rizicima, zaštiti podataka i pravilima rada.\n4) Predstaviti važeće procedure, radne upute, obrasce i način prijavljivanja nesukladnosti.\n5) Izraditi individualni plan osposobljavanja sa rokovima i odgovornim osobama.\n6) Provesti obuku i praktičnu provjeru kompetencija.\n7) Nakon probnog perioda izvršiti ocjenu osposobljenosti i odlučiti o dodatnim mjerama.\n\n5. Ulazi i izlazi\nUlazi su zahtjev za popunu radnog mjesta, opis posla, matrica kompetencija i plan osposobljavanja. Izlazi su osposobljena osoba, popunjen dosje uvođenja, procjena kompetencija i plan daljeg razvoja.\n\n6. Rizici i prilike\nRizici su rad bez potrebnih ovlaštenja, nepoznavanje kontrolisanih dokumenata i nepotpuna obuka. Mjere su provjera pristupa, mentorstvo, kontrolna lista i dokumentovana procjena. Prilika je brže uključivanje osobe u proces i rano prepoznavanje potreba za razvojem.\n\n7. Zapisi i pokazatelji\nČuvaju se plan uvođenja, kontrolna lista, evidencija obuke, provjera kompetencija i ocjena probnog perioda. Pokazatelji su procenat završenih planova, vrijeme do samostalnog rada i broj utvrđenih potreba za dodatnom obukom.\n\n8. Povezani zahtjevi\nISO 9001:2015: 5.3, 7.1.2, 7.2, 7.3, 7.5 i 8.1, uz provjeru primjenjivosti prema stvarnom procesu organizacije.\n\n9. Prateći dokumenti\n• OB-10-01 Plan uvođenja novozaposlene osobe\n• KL-10-01 Kontrolna lista prvog radnog dana\n• OB-10-02 Evidencija uvodne obuke\n• OB-10-03 Provjera kompetencija\n• REG-10-01 Registar osposobljenosti\n• ZAP-10-01 Zapisnik o ocjeni probnog perioda\n• IZV-10-01 Izvještaj o uspješnosti uvođenja\nZa svaki dokument treba odrediti vlasnika, mjesto čuvanja, pristup i rok čuvanja u skladu sa pravilima organizacije.\n\n10. Otvorena pitanja za potvrdu\nPotrebno je potvrditi vlasnika procedure, trajanje probnog perioda, način ocjenjivanja, rokove čuvanja zapisa i osobe ovlaštene za odobravanje.\n\nStatus: NACRT ZA PREGLED — nije odobreno niti potpisano.\n\nNapomena: AI servis trenutno nije dostupan zbog ograničenja računa Vercel AI Gatewaya, pa je prikazan sigurni QP-10 radni nacrt umjesto izmišljenog odgovora.`
+}
 
 export async function POST(request: Request) {
   const contentLength = Number(request.headers.get('content-length') ?? 0)
@@ -54,7 +62,7 @@ export async function POST(request: Request) {
   try {
     const references = await getReferenceLibrary()
     const result = await generateText({
-      model: MODEL,
+      model: gateway(MODEL),
       system: `${systemPrompt}\n\nSpisak dostupnih referentnih dokumenata iz arhive QP_01–QP_09:\n${references}`,
       prompt,
       maxOutputTokens: 9000,
@@ -63,7 +71,9 @@ export async function POST(request: Request) {
     return createUIMessageStreamResponse({ stream })
   } catch (error) {
     console.error('[v0] QMS AI generation failed:', error)
-    return new Response('AI asistent trenutno nije dostupan. Pokušajte ponovo.', { status: 503 })
+    const fallback = createFallbackProcedure(prompt)
+    const stream = createUIMessageStream({ execute: ({ writer }) => { const id = crypto.randomUUID(); writer.write({ type: 'text-start', id }); writer.write({ type: 'text-delta', id, delta: fallback }); writer.write({ type: 'text-end', id }) } })
+    return createUIMessageStreamResponse({ stream })
   }
 }
 
