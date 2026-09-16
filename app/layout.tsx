@@ -3,9 +3,9 @@ import type { Metadata, Viewport } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'v0 App',
-  description: 'Created with v0',
-  generator: 'v0.app',
+  title: 'IDSS-QMS · Quality Management System',
+  description: 'Bilingual ISO 9001:2015 quality management workspace for controlled documents, audits, training, and CAPA.',
+  generator: 'IDSS-QMS',
   icons: {
     icon: [
       {
