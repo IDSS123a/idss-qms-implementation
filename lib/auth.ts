@@ -10,6 +10,8 @@ const originList = [
   process.env.V0_SANDBOX_URL,
   process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : undefined,
   process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : undefined,
+  'https://idss-qms-implementation.vercel.app',
+  'https://idss.ba',
 ].filter((value): value is string => Boolean(value))
 
 const baseURL = process.env.BETTER_AUTH_URL
