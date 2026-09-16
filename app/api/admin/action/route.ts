@@ -6,6 +6,13 @@ import { roleForEmail } from '@/lib/rbac'
 
 const superadminActions = new Set(['create_environment', 'sync_knowledge', 'add_user', 'view_usage'])
 
+async function recordAdminAudit(userId: string, action: string, metadata: Record<string, unknown> = {}) {
+  const workspace = await db.execute(sql`select id from qms_workspace order by created_at asc limit 1`)
+  const workspaceId = workspace.rows[0]?.id
+  if (!workspaceId) return
+  await db.execute(sql`insert into qms_audit_event (workspace_id, user_id, action, entity_type, entity_id, metadata) values (${workspaceId}::uuid, ${userId}::uuid, ${action}, 'admin', null, ${JSON.stringify(metadata)}::jsonb)`)
+}
+
 async function ensureAdminTables() {
   await db.execute(sql`create table if not exists qms_user_role (user_id text primary key, role text not null, created_at timestamptz not null default now())`)
   await db.execute(sql`create table if not exists qms_sync_run (id uuid primary key default gen_random_uuid(), started_by text not null, status text not null, document_count integer not null default 0, created_at timestamptz not null default now())`)
@@ -23,6 +30,7 @@ export async function POST(request: Request) {
     const name = body.name?.trim() || 'IDSS-QMS glavno okruženje'
     const slug = `${name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')}-${Date.now()}`
     const result = await db.execute(sql`insert into qms_workspace (name, slug) values (${name}, ${slug}) returning id, name, slug`)
+    await recordAdminAudit(session.user.id, 'create_workspace', { name, slug })
     return NextResponse.json({ ok: true, message: `Okruženje „${name}“ je kreirano.`, workspace: result.rows[0] })
   }
 
@@ -36,12 +44,14 @@ export async function POST(request: Request) {
     const created = await auth.api.signUpEmail({ body: { name, email, password } })
     if (!created?.user?.id) return NextResponse.json({ error: 'Korisnički nalog nije kreiran.' }, { status: 500 })
     await db.execute(sql`insert into qms_user_role (user_id, role) values (${created.user.id}, ${role}) on conflict (user_id) do update set role = excluded.role`)
+    await recordAdminAudit(session.user.id, 'create_user', { email, role })
     return NextResponse.json({ ok: true, message: `Korisnički nalog za ${email} je kreiran sa ulogom ${role === 'admin' ? 'administratora' : role === 'superadmin' ? 'glavnog administratora' : 'korisnika'}.`, user: { id: created.user.id, name, email, role } })
   }
 
   if (body.action === 'sync_knowledge') {
     const manifest = await fetch(new URL('/qms-manifest.json', request.url), { cache: 'no-store' }).then((response) => response.json()).catch(() => []) as unknown[]
     const run = await db.execute(sql`insert into qms_sync_run (started_by, status, document_count) values (${session.user.id}, 'completed', ${manifest.length}) returning id, status, document_count, created_at`)
+    await recordAdminAudit(session.user.id, 'sync_knowledge', { documentCount: manifest.length })
     return NextResponse.json({ ok: true, message: `Sinhronizacija je završena. Obrađeno dokumenata: ${manifest.length}.`, sync: run.rows[0] })
   }
 
