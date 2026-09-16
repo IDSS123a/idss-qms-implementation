@@ -9,7 +9,7 @@ function readInput(value: unknown): QmsDocumentInput | null {
   const input = value as Record<string, unknown>
   if (typeof input.title !== 'string' || input.title.trim().length < 3 || input.title.length > 200) return null
   const text = (key: string) => typeof input[key] === 'string' ? input[key].slice(0, MAX_TEXT) : undefined
-  return { title: input.title.trim(), type: typeof input.type === 'string' ? input.type.slice(0, 80) : 'Procedure', code: text('code'), owner: text('owner'), purpose: text('purpose'), scope: text('scope'), responsibilities: text('responsibilities'), procedure: text('procedure'), records: text('records'), references: text('references') }
+  return { title: input.title.trim(), type: typeof input.type === 'string' ? input.type.slice(0, 80) : 'Procedura', code: text('code'), owner: text('owner'), purpose: text('purpose'), scope: text('scope'), definitions: text('definitions'), responsibilities: text('responsibilities'), procedure: text('procedure'), records: text('records'), references: text('references'), distribution: text('distribution'), appendices: text('appendices') }
 }
 
 export async function POST(request: Request) {
