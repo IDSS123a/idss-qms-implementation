@@ -25,6 +25,21 @@ export async function GET(request: Request) {
   return NextResponse.json({ tasks: tasks.rows })
 }
 
+export async function PATCH(request: Request) {
+  const current = await context(request)
+  if (!current) return NextResponse.json({ error: 'Prijava je obavezna.' }, { status: 401 })
+  if (!current.workspaceId) return NextResponse.json({ error: 'QMS okruženje još nije kreirano.' }, { status: 409 })
+  if (!can(current.role, 'edit')) return NextResponse.json({ error: 'Nemate dozvolu za izmjenu zadatka.' }, { status: 403 })
+  const body = await request.json().catch(() => ({})) as { id?: unknown; status?: unknown }
+  const id = typeof body.id === 'string' ? body.id : ''
+  const status = typeof body.status === 'string' ? body.status : ''
+  if (!/^[0-9a-f-]{36}$/i.test(id) || !['open', 'in_progress', 'blocked', 'completed', 'cancelled'].includes(status)) return NextResponse.json({ error: 'Neispravan zadatak ili status.' }, { status: 422 })
+  const result = await db.execute(sql`update qms_task set status = ${status}, completed_at = case when ${status} = 'completed' then now() else null end, updated_at = now() where id = ${id}::uuid and workspace_id = ${current.workspaceId}::uuid returning id, title, due_date, priority, status, completed_at, updated_at`)
+  if (!result.rows[0]) return NextResponse.json({ error: 'Zadatak nije pronađen.' }, { status: 404 })
+  await db.execute(sql`insert into qms_audit_event (workspace_id, user_id, action, entity_type, entity_id, metadata) values (${current.workspaceId}::uuid, ${current.user.id}::uuid, 'update', 'task', ${id}::uuid, ${JSON.stringify({ status })}::jsonb)`)
+  return NextResponse.json({ task: result.rows[0] })
+}
+
 export async function POST(request: Request) {
   const current = await context(request)
   if (!current) return NextResponse.json({ error: 'Prijava je obavezna.' }, { status: 401 })
