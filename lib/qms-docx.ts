@@ -53,7 +53,7 @@ export async function createQmsDocx(input: QmsDocumentInput) {
     },
     sections: [{
       headers: { default: new Header({ children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: [new TextRun({ text: `IDSS-QMS  |  ${code}`, bold: true, color: red, font: 'Arial', size: 18 })] })] }) },
-      footers: { default: new Footer({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Controlled document  |  Page ', font: 'Arial', size: 16 }), new TextRun({ children: [PageNumber.CURRENT] })] })] }) },
+      footers: { default: new Footer({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Kontrolisani dokument  |  Stranica ', font: 'Arial', size: 16 }), new TextRun({ children: [PageNumber.CURRENT] })] })] }) },
       children: [
         new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 260 }, children: [new TextRun({ text: input.title, bold: true, color: red, font: 'Arial', size: 34 })] }),
         new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'IDSS-QMS  |  CONTROLLED DOCUMENT', bold: true, color: red, font: 'Arial', size: 20 })] }),
