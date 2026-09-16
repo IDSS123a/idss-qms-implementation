@@ -11,7 +11,10 @@ async function context(request: Request) {
   const session = await auth.api.getSession({ headers: request.headers })
   if (!session?.user) return null
   const workspace = await db.execute(sql`select id from qms_workspace order by created_at asc limit 1`)
-  return { user: session.user, role: roleForEmail(session.user.email) as QmsRole, workspaceId: workspace.rows[0]?.id as string | undefined }
+  const storedRole = await db.execute(sql`select role from qms_user_role where user_id = ${session.user.id}::uuid limit 1`)
+  const candidateRole = String(storedRole.rows[0]?.role ?? roleForEmail(session.user.email))
+  const role = (['superadmin', 'admin', 'user'].includes(candidateRole) ? candidateRole : 'user') as QmsRole
+  return { user: session.user, role, workspaceId: workspace.rows[0]?.id as string | undefined }
 }
 
 export async function GET(request: Request) {
@@ -19,6 +22,8 @@ export async function GET(request: Request) {
   if (!current) return NextResponse.json({ error: 'Prijava je obavezna.' }, { status: 401 })
   if (!current.workspaceId) return NextResponse.json({ tasks: [] })
   const status = new URL(request.url).searchParams.get('status')
+  const allowedStatuses = ['open', 'in_progress', 'blocked', 'completed', 'cancelled'] as const
+  if (status && !allowedStatuses.includes(status as typeof allowedStatuses[number])) return NextResponse.json({ error: 'Neispravan status filter.' }, { status: 422 })
   const tasks = status
     ? await db.execute(sql`select id, title, description, owner_id, document_id, source_type, due_date, priority, status, completed_at, evidence_url, created_at, updated_at from qms_task where workspace_id = ${current.workspaceId}::uuid and status = ${status} order by due_date asc`)
     : await db.execute(sql`select id, title, description, owner_id, document_id, source_type, due_date, priority, status, completed_at, evidence_url, created_at, updated_at from qms_task where workspace_id = ${current.workspaceId}::uuid order by due_date asc`)
