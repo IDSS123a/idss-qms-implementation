@@ -7,9 +7,9 @@ export const ROLE_LABELS: Record<QmsRole, string> = {
 }
 
 export const ROLE_PERMISSIONS: Record<QmsRole, string[]> = {
-  superadmin: ['all'],
-  admin: ['view', 'create', 'edit', 'export', 'manage_users', 'view_statistics'],
-  user: ['view', 'create', 'export'],
+  superadmin: ['view', 'create', 'edit', 'delete', 'export_docx', 'export_xlsx', 'print', 'upload', 'import', 'sync', 'manage_users', 'manage_roles', 'manage_workspaces', 'assign_tasks', 'view_statistics', 'view_usage', 'view_audit'],
+  admin: ['view', 'create', 'edit', 'export_docx', 'export_xlsx', 'print', 'view_statistics', 'view_usage', 'assign_tasks'],
+  user: ['view', 'create', 'export_docx', 'export_xlsx', 'print'],
 }
 
 export const QMS_PEOPLE = [
