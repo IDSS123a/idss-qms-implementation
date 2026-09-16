@@ -34,9 +34,9 @@ export async function POST(request: Request) {
     if (!name || !email || !password) return NextResponse.json({ error: 'Ime, email i početna lozinka su obavezni.' }, { status: 422 })
     if (password.length < 8) return NextResponse.json({ error: 'Lozinka mora imati najmanje 8 znakova.' }, { status: 422 })
     const created = await auth.api.signUpEmail({ body: { name, email, password } })
-    if (!created?.user?.id) return NextResponse.json({ error: 'Credential nalog nije kreiran.' }, { status: 500 })
+    if (!created?.user?.id) return NextResponse.json({ error: 'Korisnički nalog nije kreiran.' }, { status: 500 })
     await db.execute(sql`insert into qms_user_role (user_id, role) values (${created.user.id}, ${role}) on conflict (user_id) do update set role = excluded.role`)
-    return NextResponse.json({ ok: true, message: `Credential nalog za ${email} je kreiran sa ulogom ${role}.`, user: { id: created.user.id, name, email, role } })
+    return NextResponse.json({ ok: true, message: `Korisnički nalog za ${email} je kreiran sa ulogom ${role === 'admin' ? 'administratora' : role === 'superadmin' ? 'glavnog administratora' : 'korisnika'}.`, user: { id: created.user.id, name, email, role } })
   }
 
   if (body.action === 'sync_knowledge') {
@@ -45,7 +45,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true, message: `Sinhronizacija je završena. Obrađeno dokumenata: ${manifest.length}.`, sync: run.rows[0] })
   }
 
-  return NextResponse.json({ ok: true, message: 'Usage i audit izvještaj su spremni za pregled.' })
+  return NextResponse.json({ ok: true, message: 'Izvještaj korištenja i revizijski trag spremni su za pregled.' })
 }
 
 export async function GET(request: Request) {
