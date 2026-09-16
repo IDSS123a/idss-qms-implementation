@@ -7,21 +7,9 @@ export const metadata: Metadata = {
   description: 'Bilingual ISO 9001:2015 quality management workspace for controlled documents, audits, training, and CAPA.',
   generator: 'IDSS-QMS',
   icons: {
-    icon: [
-      {
-        url: '/icon-light-32x32.png',
-        media: '(prefers-color-scheme: light)',
-      },
-      {
-        url: '/icon-dark-32x32.png',
-        media: '(prefers-color-scheme: dark)',
-      },
-      {
-        url: '/icon.svg',
-        type: 'image/svg+xml',
-      },
-    ],
-    apple: '/apple-icon.png',
+    icon: [{ url: '/idss-logo.png', type: 'image/png' }],
+    shortcut: '/idss-logo.png',
+    apple: '/idss-logo.png',
   },
 }
 
