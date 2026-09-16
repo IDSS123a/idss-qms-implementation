@@ -23,7 +23,7 @@ export async function GET(request: Request) {
   const context = await getContext(request)
   if (!context) return NextResponse.json({ error: 'Prijava je obavezna.' }, { status: 401 })
   if (!context.workspaceId) return NextResponse.json({ documents: [], workspace: null })
-  const documents = await db.execute(sql`select id, title, code, type, status, content, created_by, updated_by, created_at, updated_at from qms_document where workspace_id = ${context.workspaceId}::uuid order by updated_at desc`)
+  const documents = await db.execute(sql`select id, title, code, type, status, created_by, updated_by, created_at, updated_at from qms_document where workspace_id = ${context.workspaceId}::uuid order by updated_at desc`)
   await audit(context.user.id, String(context.workspaceId), 'read', 'document_list', null, { count: documents.rows.length })
   return NextResponse.json({ documents: documents.rows, workspace: context.workspaceId, role: context.role })
 }
@@ -53,8 +53,10 @@ export async function PATCH(request: Request) {
   const id = typeof body.id === 'string' ? body.id : ''
   const title = typeof body.title === 'string' ? body.title.trim().slice(0, 200) : ''
   const content = typeof body.content === 'string' ? body.content.slice(0, 100000) : ''
-  const status = typeof body.status === 'string' ? body.status.slice(0, 40) : 'draft'
+  const status = typeof body.status === 'string' ? body.status.trim().slice(0, 40) : 'draft'
+  const allowedStatuses = new Set(['draft', 'in_review', 'approved', 'obsolete'])
   if (!id || title.length < 3) return NextResponse.json({ error: 'ID i naziv dokumenta su obavezni.' }, { status: 422 })
+  if (!allowedStatuses.has(status)) return NextResponse.json({ error: 'Status dokumenta nije dozvoljen.' }, { status: 422 })
   const updated = await db.execute(sql`update qms_document set title = ${title}, content = ${content}, status = ${status}, updated_by = ${context.user.id}::uuid, updated_at = now() where id = ${id}::uuid and workspace_id = ${context.workspaceId}::uuid returning id, title, code, type, status, content, updated_at`)
   if (!updated.rows[0]) return NextResponse.json({ error: 'Dokument nije pronađen.' }, { status: 404 })
   await audit(context.user.id, String(context.workspaceId), 'update', 'document', id, { status })

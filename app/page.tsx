@@ -37,9 +37,10 @@ export default function Page() {
 
   useEffect(() => {
     const controller = new AbortController()
-    fetch('/api/session', { signal: controller.signal }).then((response) => response.ok ? response.json() : null).then((value: SessionInfo | null) => setSessionInfo(value)).catch(() => setSessionInfo(null))
+    let mounted = true
+    fetch('/api/session', { signal: controller.signal }).then((response) => response.ok ? response.json() : null).then((value: SessionInfo | null) => { if (mounted) setSessionInfo(value) }).catch(() => { if (mounted) setSessionInfo(null) })
     setQmsLoading(true)
-    fetch('/api/qms/documents', { signal: controller.signal }).then((response) => response.ok ? response.json() : null).then((value: { documents?: Array<{ id: string; title: string; code: string; type: string; status: string; updated_at: string }> } | null) => setQmsDocuments(value?.documents ?? [])).catch(() => setQmsDocuments([])).finally(() => setQmsLoading(false))
+    fetch('/api/qms/documents', { signal: controller.signal }).then((response) => response.ok ? response.json() : null).then((value: { documents?: Array<{ id: string; title: string; code: string; type: string; status: string; updated_at: string }> } | null) => { if (mounted) setQmsDocuments(value?.documents ?? []) }).catch(() => { if (mounted) setQmsDocuments([]) }).finally(() => { if (mounted) setQmsLoading(false) })
     fetch('/qms-manifest.json', { signal: controller.signal })
       .then((response) => response.ok ? response.json() : Promise.reject(new Error('Manifest unavailable')))
       .then((value: unknown) => {
@@ -52,7 +53,7 @@ export default function Page() {
         setDocs(safeDocs.map((doc) => { const match = doc.name.match(/(?:^|[_-])(\d{2})[_-]?(\d{2})[_-]?(\d{4})(?:\.|_|-)/); return match ? { ...doc, date: `${match[1]}.${match[2]}.${match[3]}.`, deadline: 'Datum je preuzet iz naziva izvorne datoteke.' } : doc }))
       })
       .catch(() => setDocs([]))
-    return () => controller.abort()
+    return () => { mounted = false; controller.abort() }
   }, [])
 
   const filtered = useMemo(() => docs.filter((doc) => `${doc.name} ${doc.code}`.toLowerCase().includes(query.toLowerCase())), [docs, query])
