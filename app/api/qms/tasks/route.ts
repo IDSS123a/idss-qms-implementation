@@ -55,5 +55,6 @@ export async function POST(request: Request) {
   const task = parsed.data
   const result = await db.execute(sql`insert into qms_task (workspace_id, title, description, owner_id, document_id, due_date, priority, status, created_by) values (${current.workspaceId}::uuid, ${task.title}, ${task.description ?? null}, ${task.ownerId ? `${task.ownerId}` : null}::uuid, ${task.documentId ? `${task.documentId}` : null}::uuid, ${task.dueDate.toISOString()}::timestamptz, ${task.priority}, 'open', ${current.user.id}::uuid) returning id, title, due_date, priority, status, created_at`)
   await db.execute(sql`insert into qms_audit_event (workspace_id, user_id, action, entity_type, entity_id, metadata) values (${current.workspaceId}::uuid, ${current.user.id}::uuid, 'create', 'task', ${result.rows[0].id}::uuid, ${JSON.stringify({ dueDate: task.dueDate.toISOString(), priority: task.priority })}::jsonb)`)
+  await db.execute(sql`insert into qms_notification (workspace_id, user_id, task_id, kind, title, body) values (${current.workspaceId}::uuid, ${task.ownerId ?? current.user.id}::uuid, ${result.rows[0].id}::uuid, 'task_created', 'Novi QMS zadatak', ${`Zadatak „${task.title}“ ima rok ${task.dueDate.toLocaleDateString('bs-BA')}.`})`)
   return NextResponse.json({ task: result.rows[0] }, { status: 201 })
 }
