@@ -47,7 +47,7 @@ async function getReferenceLibrary(workspaceId: string | undefined, prompt: stri
   const manifestText = await readFile(manifestPath, 'utf8')
   const manifest = JSON.parse(manifestText) as Array<{ path?: string; name?: string; code?: string }>
   const manifestReferences = manifest.filter((item) => typeof item.path === 'string' && typeof item.name === 'string')
-    .map((item) => `IZVOR: ${item.code ?? 'Dokument'} | ${item.path} | ${item.name}`)
+    .map((item) => `[CITAT] IZVOR: ${item.code ?? 'Dokument'} | naziv: ${item.name} | verzija: — | odlomak: arhivska datoteka (${item.path})`)
   return [...databaseReferences, ...manifestReferences].join('\n')
 }
 
