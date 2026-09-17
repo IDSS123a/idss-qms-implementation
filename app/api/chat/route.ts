@@ -1,7 +1,7 @@
 import { createUIMessageStream, createUIMessageStreamResponse, generateText, gateway } from 'ai'
-import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { sql } from 'drizzle-orm'
+import { getQmsContext } from '@/lib/qms-auth'
 import { readFile } from 'node:fs/promises'
 import { checkRateLimit } from '@/lib/rate-limit'
 import path from 'node:path'
@@ -36,7 +36,12 @@ async function getReferenceLibrary(workspaceId: string | undefined, prompt: stri
   const documents = workspaceId ? await db.execute(sql`select d.code, d.title, d.type, d.status, v.version, v.content from qms_document d left join lateral (select version, content from qms_document_version where document_id = d.id and workspace_id = d.workspace_id order by created_at desc limit 1) v on true where d.workspace_id = ${workspaceId}::uuid and lower(concat_ws(' ', d.code, d.title, d.type, d.content::text, v.content::text)) like ${pattern} order by d.updated_at desc limit 12`) : { rows: [] }
   const databaseReferences = documents.rows.map((item) => {
     const row = item as { code?: string; title?: string; type?: string; status?: string; version?: string; content?: unknown }
-    return `IZVOR: ${row.code ?? 'Dokument'} | ${row.title ?? 'Bez naziva'} | tip: ${row.type ?? 'QMS'} | status: ${row.status ?? 'nepoznat'} | verzija: ${row.version ?? '—'}\nSADRŽAJ: ${JSON.stringify(row.content ?? '').slice(0, 12000)}`
+    return `[CITAT] IZVOR: ${row.code ?? 'Dokument'} | naziv: ${row.title ?? 'Bez naziva'} | tip: ${row.type ?? 'QMS'} | status: ${row.status ?? 'nepoznat'} | verzija: ${row.version ?? '—'} | odlomak: cijeli dokument\nSADRŽAJ: ${JSON.stringify(row.content ?? '').slice(0, 12000)}`
+  })
+  const chunks = workspaceId ? await db.execute(sql`select d.code, d.title, v.version, c.source_name, c.chunk_index, c.content from qms_document_chunk c join qms_document d on d.id = c.document_id left join lateral (select version from qms_document_version where document_id = d.id and workspace_id = d.workspace_id order by created_at desc limit 1) v on true where c.workspace_id = ${workspaceId}::uuid and lower(c.content) like ${pattern} order by d.updated_at desc, c.chunk_index asc limit 40`) : { rows: [] }
+  const chunkReferences = chunks.rows.map((item) => {
+    const row = item as { code?: string; title?: string; version?: string; source_name?: string; chunk_index?: string; content?: string }
+    return `[CITAT] IZVOR: ${row.code ?? 'Dokument'} | naziv: ${row.title ?? row.source_name ?? 'Bez naziva'} | verzija: ${row.version ?? '—'} | odlomak: ${row.chunk_index ?? '—'}\nSADRŽAJ: ${(row.content ?? '').slice(0, 6000)}`
   })
   const manifestPath = path.join(process.cwd(), 'public', 'qms-manifest.json')
   const manifestText = await readFile(manifestPath, 'utf8')
@@ -48,7 +53,7 @@ async function getReferenceLibrary(workspaceId: string | undefined, prompt: stri
 
 const systemPrompt = `Ti si IDSS-QMS stručni AI asistent za upravljanje kvalitetom. Odgovaraj isključivo na bosanskom jeziku, latinicom, jasno i profesionalno. Korisnik želi izradu kompletnih QMS procedura po uzoru na postojeće procedure QP_01 do QP_09.
 
-Kada korisnik traži novu proceduru, ne daj kratak nacrt. Prvo razjasni samo podatke koji stvarno nedostaju, a zatim izradi detaljan radni dokument sa najmanje: šifrom i nazivom, svrhom, područjem primjene, povezanim dokumentima i ISO 9001:2015 tačkama, definicijama, odgovornostima, ulazima i izlazima procesa, detaljnim koracima sa kriterijima i zapisima, rizicima i prilikama, pokazateljima uspješnosti, upravljanjem nesukladnostima, kontrolom dokumentovanih informacija, revizijom i odobravanjem. Obavezno predloži i kompletan paket pratećih dokumenata: obrasce, kontrolne liste, planove, registre, zapisnike, izvještaje i evidencije, sa šiframa, vlasnikom, mjestom čuvanja i rokom čuvanja.
+Kada korisnik traži novu proceduru, ne daj kratak nacrt. Za svaku činjeničnu tvrdnju koristi dostupni [CITAT] i navedi šifru, verziju i odlomak; ako citat ne postoji, napiši „Nije pronađeno u izvornoj dokumentaciji.“ Ne izmišljaj rokove, obrasce, zahtjeve ili ISO tumačenja. Prvo razjasni samo podatke koji stvarno nedostaju, a zatim izradi detaljan radni dokument sa najmanje: šifrom i nazivom, svrhom, područjem primjene, povezanim dokumentima i ISO 9001:2015 tačkama, definicijama, odgovornostima, ulazima i izlazima procesa, detaljnim koracima sa kriterijima i zapisima, rizicima i prilikama, pokazateljima uspješnosti, upravljanjem nesukladnostima, kontrolom dokumentovanih informacija, revizijom i odobravanjem. Obavezno predloži i kompletan paket pratećih dokumenata: obrasce, kontrolne liste, planove, registre, zapisnike, izvještaje i evidencije, sa šiframa, vlasnikom, mjestom čuvanja i rokom čuvanja.
 
 Ne izmišljaj da je dokument stvarno odobren, potpisan ili usklađen ako to nije potvrđeno. Jasno označi pretpostavke, otvorena pitanja i status NACRT ZA PREGLED. Kada koristiš izvor, navedi ga na kraju odgovora u formatu [Izvor: šifra, verzija, naziv]. Ako podatak nije pronađen u priloženim QMS izvorima, napiši: „Nije pronađeno u izvornoj dokumentaciji.“ AI nikada ne odobrava niti objavljuje dokument. Koristi terminologiju QP, obrazac, zapis, registar, kontrolna lista, odgovorna osoba, rok čuvanja i revizija. Ne koristi hrvatizme ili srbizme kada postoji prirodan bosanski izraz.`
 
@@ -70,12 +75,11 @@ export async function POST(request: Request) {
   } catch { return new Response('Neispravan JSON zahtjev.', { status: 400 }) }
   const prompt = getPrompt(body)
   if (!prompt) return new Response('Poruka nije ispravna.', { status: 400 })
-  const session = await auth.api.getSession({ headers: request.headers })
-  if (!session?.user) return new Response('Prijava je obavezna.', { status: 401 })
-  const rate = checkRateLimit(`chat:${session.user.id}`, 20)
+  const context = await getQmsContext(request)
+  if (!context) return new Response('Prijava je obavezna.', { status: 401 })
+  const rate = checkRateLimit(`chat:${context.user.id}`, 20)
   if (!rate.allowed) return new Response('Previše zahtjeva. Pokušajte ponovo za minut.', { status: 429, headers: { 'Retry-After': '60' } })
-  const workspace = await db.execute(sql`select id from qms_workspace order by created_at asc limit 1`)
-  const workspaceId = workspace.rows[0]?.id as string | undefined
+  const workspaceId = context.workspaceId
 
   try {
     const references = await getReferenceLibrary(workspaceId, prompt)
@@ -85,7 +89,7 @@ export async function POST(request: Request) {
       prompt,
       maxOutputTokens: 9000,
     })
-    if (workspaceId) await db.execute(sql`insert into qms_audit_event (workspace_id, user_id, action, entity_type, entity_id, metadata) values (${workspaceId}::uuid, ${session.user.id}::uuid, 'generate', 'ai_draft', null, ${JSON.stringify({ prompt: prompt.slice(0, 500), referenceCount: references.split('IZVOR:').length - 1 })}::jsonb)`)
+    if (workspaceId) await db.execute(sql`insert into qms_audit_event (workspace_id, user_id, action, entity_type, entity_id, metadata) values (${workspaceId}::uuid, ${context.user.id}::uuid, 'generate', 'ai_draft', null, ${JSON.stringify({ prompt: prompt.slice(0, 500), referenceCount: references.split('IZVOR:').length - 1 })}::jsonb)`)
     const stream = createUIMessageStream({ execute: ({ writer }) => { const id = crypto.randomUUID(); writer.write({ type: 'text-start', id }); writer.write({ type: 'text-delta', id, delta: result.text }); writer.write({ type: 'text-end', id }) } })
     return createUIMessageStreamResponse({ stream })
   } catch (error) {
