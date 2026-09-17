@@ -1,4 +1,4 @@
-import { createUIMessageStream, createUIMessageStreamResponse, generateText, gateway } from 'ai'
+import { createUIMessageStream, createUIMessageStreamResponse } from 'ai'
 import { db } from '@/lib/db'
 import { sql } from 'drizzle-orm'
 import { getQmsContext } from '@/lib/qms-auth'
@@ -11,7 +11,11 @@ export const runtime = 'nodejs'
 const MAX_BODY_BYTES = 256_000
 const MAX_MESSAGES = 40
 const MAX_TEXT_LENGTH = 8_000
-const MODEL = 'openai/gpt-5-mini'
+const GEMINI_KEY_ENV_NAMES = ['GEMINI_API_KEY_1_2', 'GEMINI_API_KEY_2_2', 'GEMINI_API_KEY_3_2', 'GEMINI_API_KEY_4_2', 'GEMINI_API_KEY_5_2', 'GEMINI_API_KEY_6_2', 'GEMINI_API_KEY_7_2', 'GEMINI_API_KEY_8'] as const
+const GEMINI_KEYS = GEMINI_KEY_ENV_NAMES.map((name) => process.env[name]).filter((key): key is string => Boolean(key?.trim()))
+const GEMINI_MODEL = process.env.GEMINI_MODEL ?? 'gemini-2.5-flash'
+const GEMINI_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`
+
 
 type ChatPart = { type?: unknown; text?: unknown }
 type ChatMessage = { role?: unknown; parts?: unknown }
@@ -51,6 +55,33 @@ async function getReferenceLibrary(workspaceId: string | undefined, prompt: stri
   return [...databaseReferences, ...manifestReferences].join('\n')
 }
 
+async function generateWithGemini(system: string, prompt: string) {
+  if (GEMINI_KEYS.length === 0) throw new Error('Gemini API ključevi nisu konfigurirani.')
+  const contents = [{ role: 'user', parts: [{ text: `${system}\n\nKORISNIČKI ZAHTJEV:\n${prompt}` }] }]
+  let lastError: unknown
+  for (const apiKey of GEMINI_KEYS) {
+    try {
+      const response = await fetch(GEMINI_ENDPOINT, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-goog-api-key': apiKey },
+        body: JSON.stringify({ contents, generationConfig: { maxOutputTokens: 9000, temperature: 0.2 } }),
+        signal: AbortSignal.timeout(45_000),
+      })
+      if (response.ok) {
+        const payload = await response.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> }
+        const text = payload.candidates?.[0]?.content?.parts?.map((part) => part.text ?? '').join('').trim()
+        if (text) return text
+        lastError = new Error('Gemini je vratio prazan odgovor.')
+      } else {
+        lastError = new Error(`Gemini request failed with status ${response.status}`)
+      }
+    } catch (error) {
+      lastError = error
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error('Gemini generisanje nije uspjelo.')
+}
+
 const systemPrompt = `Ti si IDSS-QMS stručni AI asistent za upravljanje kvalitetom. Odgovaraj isključivo na bosanskom jeziku, latinicom, jasno i profesionalno. Korisnik želi izradu kompletnih QMS procedura po uzoru na postojeće procedure QP_01 do QP_09.
 
 Kada korisnik traži novu proceduru, ne daj kratak nacrt. Za svaku činjeničnu tvrdnju koristi dostupni [CITAT] i navedi šifru, verziju i odlomak; ako citat ne postoji, napiši „Nije pronađeno u izvornoj dokumentaciji.“ Ne izmišljaj rokove, obrasce, zahtjeve ili ISO tumačenja. Prvo razjasni samo podatke koji stvarno nedostaju, a zatim izradi detaljan radni dokument sa najmanje: šifrom i nazivom, svrhom, područjem primjene, povezanim dokumentima i ISO 9001:2015 tačkama, definicijama, odgovornostima, ulazima i izlazima procesa, detaljnim koracima sa kriterijima i zapisima, rizicima i prilikama, pokazateljima uspješnosti, upravljanjem nesukladnostima, kontrolom dokumentovanih informacija, revizijom i odobravanjem. Obavezno predloži i kompletan paket pratećih dokumenata: obrasce, kontrolne liste, planove, registre, zapisnike, izvještaje i evidencije, sa šiframa, vlasnikom, mjestom čuvanja i rokom čuvanja.
@@ -83,14 +114,9 @@ export async function POST(request: Request) {
 
   try {
     const references = await getReferenceLibrary(workspaceId, prompt)
-    const result = await generateText({
-      model: gateway(MODEL),
-      system: `${systemPrompt}\n\nSpisak dostupnih referentnih dokumenata iz arhive QP_01–QP_09:\n${references}`,
-      prompt,
-      maxOutputTokens: 9000,
-    })
+    const resultText = await generateWithGemini(`${systemPrompt}\n\nSpisak dostupnih referentnih dokumenata iz arhive QP_01–QP_09:\n${references}`, prompt)
     if (workspaceId) await db.execute(sql`insert into qms_audit_event (workspace_id, user_id, action, entity_type, entity_id, metadata) values (${workspaceId}::uuid, ${context.user.id}::uuid, 'generate', 'ai_draft', null, ${JSON.stringify({ prompt: prompt.slice(0, 500), referenceCount: references.split('IZVOR:').length - 1 })}::jsonb)`)
-    const stream = createUIMessageStream({ execute: ({ writer }) => { const id = crypto.randomUUID(); writer.write({ type: 'text-start', id }); writer.write({ type: 'text-delta', id, delta: result.text }); writer.write({ type: 'text-end', id }) } })
+    const stream = createUIMessageStream({ execute: ({ writer }) => { const id = crypto.randomUUID(); writer.write({ type: 'text-start', id }); writer.write({ type: 'text-delta', id, delta: resultText }); writer.write({ type: 'text-end', id }) } })
     return createUIMessageStreamResponse({ stream })
   } catch (error) {
     console.error('[v0] QMS AI generation failed:', error)
