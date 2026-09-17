@@ -1,5 +1,9 @@
 import { createUIMessageStream, createUIMessageStreamResponse, generateText, gateway } from 'ai'
+import { auth } from '@/lib/auth'
+import { db } from '@/lib/db'
+import { sql } from 'drizzle-orm'
 import { readFile } from 'node:fs/promises'
+import { checkRateLimit } from '@/lib/rate-limit'
 import path from 'node:path'
 
 export const runtime = 'nodejs'
@@ -26,19 +30,27 @@ function getPrompt(body: unknown) {
   return text.length > 0 && text.length <= MAX_TEXT_LENGTH ? text : null
 }
 
-async function getReferenceLibrary() {
+async function getReferenceLibrary(workspaceId: string | undefined, prompt: string) {
+  const terms = prompt.toLowerCase().split(/\s+/).filter((term) => term.length > 3).slice(0, 8)
+  const pattern = terms.length ? `%${terms.join('%')}%` : '%'
+  const documents = workspaceId ? await db.execute(sql`select d.code, d.title, d.type, d.status, v.version, v.content from qms_document d left join lateral (select version, content from qms_document_version where document_id = d.id and workspace_id = d.workspace_id order by created_at desc limit 1) v on true where d.workspace_id = ${workspaceId}::uuid and lower(concat_ws(' ', d.code, d.title, d.type, d.content::text, v.content::text)) like ${pattern} order by d.updated_at desc limit 12`) : { rows: [] }
+  const databaseReferences = documents.rows.map((item) => {
+    const row = item as { code?: string; title?: string; type?: string; status?: string; version?: string; content?: unknown }
+    return `IZVOR: ${row.code ?? 'Dokument'} | ${row.title ?? 'Bez naziva'} | tip: ${row.type ?? 'QMS'} | status: ${row.status ?? 'nepoznat'} | verzija: ${row.version ?? '—'}\nSADRŽAJ: ${JSON.stringify(row.content ?? '').slice(0, 12000)}`
+  })
   const manifestPath = path.join(process.cwd(), 'public', 'qms-manifest.json')
   const manifestText = await readFile(manifestPath, 'utf8')
   const manifest = JSON.parse(manifestText) as Array<{ path?: string; name?: string; code?: string }>
-  return manifest.filter((item) => typeof item.path === 'string' && typeof item.name === 'string')
-    .map((item) => `${item.code ?? 'Dokument'} | ${item.path} | ${item.name}`).join('\n')
+  const manifestReferences = manifest.filter((item) => typeof item.path === 'string' && typeof item.name === 'string')
+    .map((item) => `IZVOR: ${item.code ?? 'Dokument'} | ${item.path} | ${item.name}`)
+  return [...databaseReferences, ...manifestReferences].join('\n')
 }
 
 const systemPrompt = `Ti si IDSS-QMS stručni AI asistent za upravljanje kvalitetom. Odgovaraj isključivo na bosanskom jeziku, latinicom, jasno i profesionalno. Korisnik želi izradu kompletnih QMS procedura po uzoru na postojeće procedure QP_01 do QP_09.
 
 Kada korisnik traži novu proceduru, ne daj kratak nacrt. Prvo razjasni samo podatke koji stvarno nedostaju, a zatim izradi detaljan radni dokument sa najmanje: šifrom i nazivom, svrhom, područjem primjene, povezanim dokumentima i ISO 9001:2015 tačkama, definicijama, odgovornostima, ulazima i izlazima procesa, detaljnim koracima sa kriterijima i zapisima, rizicima i prilikama, pokazateljima uspješnosti, upravljanjem nesukladnostima, kontrolom dokumentovanih informacija, revizijom i odobravanjem. Obavezno predloži i kompletan paket pratećih dokumenata: obrasce, kontrolne liste, planove, registre, zapisnike, izvještaje i evidencije, sa šiframa, vlasnikom, mjestom čuvanja i rokom čuvanja.
 
-Ne izmišljaj da je dokument stvarno odobren, potpisan ili usklađen ako to nije potvrđeno. Jasno označi pretpostavke, otvorena pitanja i status NACRT ZA PREGLED. Koristi terminologiju QP, obrazac, zapis, registar, kontrolna lista, odgovorna osoba, rok čuvanja i revizija. Ne koristi hrvatizme ili srbizme kada postoji prirodan bosanski izraz.`
+Ne izmišljaj da je dokument stvarno odobren, potpisan ili usklađen ako to nije potvrđeno. Jasno označi pretpostavke, otvorena pitanja i status NACRT ZA PREGLED. Kada koristiš izvor, navedi ga na kraju odgovora u formatu [Izvor: šifra, verzija, naziv]. Ako podatak nije pronađen u priloženim QMS izvorima, napiši: „Nije pronađeno u izvornoj dokumentaciji.“ AI nikada ne odobrava niti objavljuje dokument. Koristi terminologiju QP, obrazac, zapis, registar, kontrolna lista, odgovorna osoba, rok čuvanja i revizija. Ne koristi hrvatizme ili srbizme kada postoji prirodan bosanski izraz.`
 
 function createFallbackProcedure(prompt: string) {
   const qp10 = /qp[- _]?10|novozaposlen/i.test(prompt)
@@ -58,15 +70,22 @@ export async function POST(request: Request) {
   } catch { return new Response('Neispravan JSON zahtjev.', { status: 400 }) }
   const prompt = getPrompt(body)
   if (!prompt) return new Response('Poruka nije ispravna.', { status: 400 })
+  const session = await auth.api.getSession({ headers: request.headers })
+  if (!session?.user) return new Response('Prijava je obavezna.', { status: 401 })
+  const rate = checkRateLimit(`chat:${session.user.id}`, 20)
+  if (!rate.allowed) return new Response('Previše zahtjeva. Pokušajte ponovo za minut.', { status: 429, headers: { 'Retry-After': '60' } })
+  const workspace = await db.execute(sql`select id from qms_workspace order by created_at asc limit 1`)
+  const workspaceId = workspace.rows[0]?.id as string | undefined
 
   try {
-    const references = await getReferenceLibrary()
+    const references = await getReferenceLibrary(workspaceId, prompt)
     const result = await generateText({
       model: gateway(MODEL),
       system: `${systemPrompt}\n\nSpisak dostupnih referentnih dokumenata iz arhive QP_01–QP_09:\n${references}`,
       prompt,
       maxOutputTokens: 9000,
     })
+    if (workspaceId) await db.execute(sql`insert into qms_audit_event (workspace_id, user_id, action, entity_type, entity_id, metadata) values (${workspaceId}::uuid, ${session.user.id}::uuid, 'generate', 'ai_draft', null, ${JSON.stringify({ prompt: prompt.slice(0, 500), referenceCount: references.split('IZVOR:').length - 1 })}::jsonb)`)
     const stream = createUIMessageStream({ execute: ({ writer }) => { const id = crypto.randomUUID(); writer.write({ type: 'text-start', id }); writer.write({ type: 'text-delta', id, delta: result.text }); writer.write({ type: 'text-end', id }) } })
     return createUIMessageStreamResponse({ stream })
   } catch (error) {
