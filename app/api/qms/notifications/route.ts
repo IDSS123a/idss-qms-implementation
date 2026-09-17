@@ -17,7 +17,7 @@ export async function PATCH(request: Request) {
   if (!context) return qmsError('Prijava je obavezna.', 401, request.headers.get('x-request-id') || crypto.randomUUID())
   const body = await request.json().catch(() => ({})) as { id?: unknown }
   const id = typeof body.id === 'string' ? body.id : ''
-  if (!/^[0-9a-f-]{36}$/i.test(id)) return NextResponse.json({ error: 'Neispravna notifikacija.' }, { status: 422 })
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return qmsError('Neispravna notifikacija.', 422, request.headers.get('x-request-id') || crypto.randomUUID())
   const result = await db.execute(sql`update qms_notification set read_at = coalesce(read_at, now()) where id = ${id}::uuid and workspace_id = ${context.workspaceId}::uuid and user_id = ${context.user.id}::uuid returning id, read_at`)
   if (!result.rows[0]) return NextResponse.json({ error: 'Notifikacija nije pronađena.' }, { status: 404 })
   return NextResponse.json({ notification: result.rows[0] })
