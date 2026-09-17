@@ -1,30 +1,21 @@
 import { NextResponse } from 'next/server'
-import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { sql } from 'drizzle-orm'
-import { roleForEmail, can, type QmsRole } from '@/lib/rbac'
+import { can } from '@/lib/rbac'
+import { getQmsContext } from '@/lib/qms-auth'
+import { qmsError } from '@/lib/qms-http'
 import { documentInputSchema, validationError } from '@/lib/validation/qms'
 
 export const runtime = 'nodejs'
 
-async function getContext(request: Request) {
-  const session = await auth.api.getSession({ headers: request.headers })
-  if (!session?.user) return null
-  const storedRole = await db.execute(sql`select role from qms_user_role where user_id = ${session.user.id}::uuid limit 1`)
-  const candidateRole = String(storedRole.rows[0]?.role ?? roleForEmail(session.user.email))
-  const role = (['superadmin', 'admin', 'user'].includes(candidateRole) ? candidateRole : 'user') as QmsRole
-  const workspace = await db.execute(sql`select id, name, slug from qms_workspace order by created_at asc limit 1`)
-  const workspaceId = workspace.rows[0]?.id
-  return { user: session.user, role, workspaceId }
-}
 
 async function audit(userId: string, workspaceId: string, action: string, entityType: string, entityId: string | null, metadata: Record<string, unknown> = {}) {
   await db.execute(sql`insert into qms_audit_event (workspace_id, user_id, action, entity_type, entity_id, metadata) values (${workspaceId}::uuid, ${userId}::uuid, ${action}, ${entityType}, ${entityId ? `${entityId}` : null}::uuid, ${JSON.stringify(metadata)}::jsonb)`)
 }
 
 export async function GET(request: Request) {
-  const context = await getContext(request)
-  if (!context) return NextResponse.json({ error: 'Prijava je obavezna.' }, { status: 401 })
+  const context = await getQmsContext(request)
+  if (!context) return qmsError('Prijava je obavezna.', 401, request.headers.get('x-request-id') || crypto.randomUUID())
   if (!context.workspaceId) return NextResponse.json({ documents: [], workspace: null })
   const documents = await db.execute(sql`select d.id, d.title, d.code, d.type, d.status, d.created_by, d.updated_by, d.created_at, d.updated_at, (select v.version from qms_document_version v where v.document_id = d.id and v.workspace_id = d.workspace_id order by v.created_at desc limit 1) as version from qms_document d where d.workspace_id = ${context.workspaceId}::uuid order by d.updated_at desc`)
   await audit(context.user.id, String(context.workspaceId), 'read', 'document_list', null, { count: documents.rows.length })
@@ -32,8 +23,8 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const context = await getContext(request)
-  if (!context) return NextResponse.json({ error: 'Prijava je obavezna.' }, { status: 401 })
+  const context = await getQmsContext(request)
+  if (!context) return qmsError('Prijava je obavezna.', 401, request.headers.get('x-request-id') || crypto.randomUUID())
   if (!context.workspaceId) return NextResponse.json({ error: 'QMS okruženje još nije kreirano.' }, { status: 409 })
   if (!can(context.role, 'create')) return NextResponse.json({ error: 'Nemate dozvolu za kreiranje dokumenta.' }, { status: 403 })
   const body = await request.json().catch(() => ({}))
@@ -48,8 +39,8 @@ export async function POST(request: Request) {
 }
 
 export async function PATCH(request: Request) {
-  const context = await getContext(request)
-  if (!context) return NextResponse.json({ error: 'Prijava je obavezna.' }, { status: 401 })
+  const context = await getQmsContext(request)
+  if (!context) return qmsError('Prijava je obavezna.', 401, request.headers.get('x-request-id') || crypto.randomUUID())
   if (!can(context.role, 'edit')) return NextResponse.json({ error: 'Nemate dozvolu za izmjenu dokumenta.' }, { status: 403 })
   const body = await request.json().catch(() => ({})) as Record<string, unknown>
   const id = typeof body.id === 'string' ? body.id : ''
@@ -71,8 +62,8 @@ export async function PATCH(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const context = await getContext(request)
-  if (!context) return NextResponse.json({ error: 'Prijava je obavezna.' }, { status: 401 })
+  const context = await getQmsContext(request)
+  if (!context) return qmsError('Prijava je obavezna.', 401, request.headers.get('x-request-id') || crypto.randomUUID())
   if (!can(context.role, 'delete')) return NextResponse.json({ error: 'Nemate dozvolu za brisanje dokumenta.' }, { status: 403 })
   const id = new URL(request.url).searchParams.get('id')
   if (!id) return NextResponse.json({ error: 'ID dokumenta je obavezan.' }, { status: 422 })
