@@ -115,7 +115,7 @@ export async function POST(request: Request) {
   try {
     const references = await getReferenceLibrary(workspaceId, prompt)
     const resultText = await generateWithGemini(`${systemPrompt}\n\nSpisak dostupnih referentnih dokumenata iz arhive QP_01–QP_09:\n${references}`, prompt)
-    if (workspaceId) await db.execute(sql`insert into qms_audit_event (workspace_id, user_id, action, entity_type, entity_id, metadata) values (${workspaceId}::uuid, ${context.user.id}::uuid, 'generate', 'ai_draft', null, ${JSON.stringify({ prompt: prompt.slice(0, 500), referenceCount: references.split('IZVOR:').length - 1 })}::jsonb)`)
+    if (workspaceId) await db.execute(sql`insert into qms_audit_event (workspace_id, user_id, action, entity_type, entity_id, metadata) values (${workspaceId}::uuid, ${context.user.id}, 'generate', 'ai_draft', null, ${JSON.stringify({ prompt: prompt.slice(0, 500), referenceCount: references.split('IZVOR:').length - 1 })}::jsonb)`)
     const stream = createUIMessageStream({ execute: ({ writer }) => { const id = crypto.randomUUID(); writer.write({ type: 'text-start', id }); writer.write({ type: 'text-delta', id, delta: resultText }); writer.write({ type: 'text-end', id }) } })
     return createUIMessageStreamResponse({ stream })
   } catch (error) {
