@@ -2,7 +2,8 @@ import { embed } from 'ai'
 import { NextResponse } from 'next/server'
 import { sql } from 'drizzle-orm'
 import { db } from '@/lib/db'
-import { auth } from '@/lib/auth'
+import { getQmsContext } from '@/lib/qms-auth'
+import { qmsError } from '@/lib/qms-http'
 
 const MODEL = 'google/text-multilingual-embedding-002'
 
@@ -13,13 +14,13 @@ function similarity(a: number[], b: number[]) {
 }
 
 export async function POST(request: Request) {
-  const session = await auth.api.getSession({ headers: request.headers })
-  if (!session?.user) return NextResponse.json({ error: 'Prijava je obavezna.' }, { status: 401 })
+  const context = await getQmsContext(request)
+  const requestId = context?.requestId ?? request.headers.get('x-request-id') ?? crypto.randomUUID()
+  if (!context) return qmsError('Prijava je obavezna.', 401, requestId)
   const body = await request.json().catch(() => ({})) as { query?: unknown }
   const query = typeof body.query === 'string' ? body.query.trim().slice(0, 500) : ''
   if (query.length < 2) return NextResponse.json({ error: 'Upit je prekratak.' }, { status: 422 })
-  const workspace = await db.execute(sql`select id from qms_workspace order by created_at asc limit 1`)
-  const workspaceId = workspace.rows[0]?.id as string | undefined
+  const workspaceId = context.workspaceId
   if (!workspaceId) return NextResponse.json({ results: [] })
   const { embedding } = await embed({ model: MODEL, value: query })
   const rows = await db.execute(sql`select id, document_id, source_name, chunk_index, content, embedding from qms_document_chunk where workspace_id = ${workspaceId}::uuid and embedding is not null order by created_at desc limit 1000`)

@@ -41,12 +41,14 @@ export default function Page() {
   const [tasksLoading, setTasksLoading] = useState(false)
   const [notifications, setNotifications] = useState<Array<{ id: string; title: string; body: string; read_at?: string | null; created_at: string }>>([])
   const [notificationsLoading, setNotificationsLoading] = useState(false)
+  const [metrics, setMetrics] = useState<{ documents: number; openTasks: number; overdueTasks: number; openCapa: number; openRisks: number; plannedAudits: number; assignedTraining: number } | null>(null)
   const { messages, sendMessage, status, error } = useChat({ transport: new DefaultChatTransport({ api: '/api/chat' }) })
 
   useEffect(() => {
     const controller = new AbortController()
     let mounted = true
     fetch('/api/session', { signal: controller.signal }).then((response) => response.ok ? response.json() : null).then((value: SessionInfo | null) => { if (mounted) setSessionInfo(value) }).catch(() => { if (mounted) setSessionInfo(null) })
+    fetch('/api/qms/metrics', { signal: controller.signal }).then((response) => response.ok ? response.json() : null).then((value) => { if (mounted) setMetrics(value?.metrics ?? null) }).catch(() => { if (mounted) setMetrics(null) })
     setNotificationsLoading(true)
     fetch('/api/qms/notifications', { signal: controller.signal }).then((response) => response.ok ? response.json() : null).then((value: { notifications?: Array<{ id: string; title: string; body: string; read_at?: string | null; created_at: string }> } | null) => { if (mounted) setNotifications(value?.notifications ?? []) }).catch(() => { if (mounted) setNotifications([]) }).finally(() => { if (mounted) setNotificationsLoading(false) })
     setTasksLoading(true)

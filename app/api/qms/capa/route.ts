@@ -1,25 +1,17 @@
 import { NextResponse } from 'next/server'
 import { sql } from 'drizzle-orm'
 import { db } from '@/lib/db'
-import { auth } from '@/lib/auth'
-import { can, roleForEmail, type QmsRole } from '@/lib/rbac'
+import { can } from '@/lib/rbac'
+import { getQmsContext } from '@/lib/qms-auth'
+import { qmsError } from '@/lib/qms-http'
 
 const statuses = ['open', 'investigating', 'action_required', 'effectiveness_check', 'closed'] as const
 const classifications = ['minor', 'major', 'critical'] as const
 
-async function getContext(request: Request) {
-  const session = await auth.api.getSession({ headers: request.headers })
-  if (!session?.user) return null
-  const workspace = await db.execute(sql`select id from qms_workspace order by created_at asc limit 1`)
-  const storedRole = await db.execute(sql`select role from qms_user_role where user_id = ${session.user.id}::uuid limit 1`)
-  const candidate = String(storedRole.rows[0]?.role ?? roleForEmail(session.user.email))
-  const role = (['superadmin', 'admin', 'user'].includes(candidate) ? candidate : 'user') as QmsRole
-  return { user: session.user, workspaceId: workspace.rows[0]?.id as string | undefined, role }
-}
 
 export async function GET(request: Request) {
-  const context = await getContext(request)
-  if (!context) return NextResponse.json({ error: 'Prijava je obavezna.' }, { status: 401 })
+  const context = await getQmsContext(request)
+  if (!context) return qmsError('Prijava je obavezna.', 401, request.headers.get('x-request-id') || crypto.randomUUID())
   if (!context.workspaceId) return NextResponse.json({ capa: [] })
   const status = new URL(request.url).searchParams.get('status')
   if (status && !statuses.includes(status as typeof statuses[number])) return NextResponse.json({ error: 'Neispravan CAPA status.' }, { status: 422 })
@@ -30,8 +22,8 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const context = await getContext(request)
-  if (!context) return NextResponse.json({ error: 'Prijava je obavezna.' }, { status: 401 })
+  const context = await getQmsContext(request)
+  if (!context) return qmsError('Prijava je obavezna.', 401, request.headers.get('x-request-id') || crypto.randomUUID())
   if (!context.workspaceId) return NextResponse.json({ error: 'QMS okruženje još nije kreirano.' }, { status: 409 })
   if (!can(context.role, 'create')) return NextResponse.json({ error: 'Nemate dozvolu za kreiranje CAPA mjere.' }, { status: 403 })
   const body = await request.json().catch(() => ({})) as Record<string, unknown>
@@ -46,8 +38,8 @@ export async function POST(request: Request) {
 }
 
 export async function PATCH(request: Request) {
-  const context = await getContext(request)
-  if (!context) return NextResponse.json({ error: 'Prijava je obavezna.' }, { status: 401 })
+  const context = await getQmsContext(request)
+  if (!context) return qmsError('Prijava je obavezna.', 401, request.headers.get('x-request-id') || crypto.randomUUID())
   if (!context.workspaceId || !can(context.role, 'edit')) return NextResponse.json({ error: 'Nemate dozvolu za izmjenu CAPA mjere.' }, { status: 403 })
   const body = await request.json().catch(() => ({})) as { id?: unknown; status?: unknown; rootCause?: unknown; correctiveAction?: unknown; preventiveAction?: unknown; effectivenessCheck?: unknown }
   const id = typeof body.id === 'string' ? body.id : ''
