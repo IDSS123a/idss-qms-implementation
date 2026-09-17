@@ -9,6 +9,7 @@ export async function GET(request: Request) {
   const requestId = request.headers.get('x-request-id') ?? crypto.randomUUID()
   const context = await getQmsContext(request)
   if (!context) return qmsError('Prijava je obavezna.', 401, requestId)
+  if (!['admin', 'superadmin'].includes(context.role)) return qmsError('Samo administrator može pregledati API ključeve.', 403, requestId)
   const rows = await db.execute(sql`select id, name, key_prefix, last_used_at, revoked_at, created_at from qms_api_key where workspace_id = ${context.workspaceId}::uuid order by created_at desc`)
   return NextResponse.json({ keys: rows.rows, requestId })
 }
