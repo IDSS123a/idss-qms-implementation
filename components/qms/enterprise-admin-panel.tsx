@@ -1,0 +1,17 @@
+'use client'
+
+import { useEffect, useState } from 'react'
+
+export function EnterpriseAdminPanel() {
+  const [members, setMembers] = useState<Array<{ id: string; name: string; email: string; role: string }>>([])
+  const [email, setEmail] = useState('')
+  const [role, setRole] = useState('viewer')
+  const [status, setStatus] = useState('')
+  const [ready, setReady] = useState<boolean | null>(null)
+  const [token, setToken] = useState('')
+  const refresh = async () => { const [memberResponse, onboardingResponse] = await Promise.all([fetch('/api/qms/members'), fetch('/api/qms/onboarding')]); const memberValue = await memberResponse.json(); const onboardingValue = await onboardingResponse.json(); setMembers(memberValue.members ?? []); setReady(onboardingValue.ready ?? false) }
+  useEffect(() => { refresh().catch(() => setStatus('Enterprise podaci nisu dostupni.')) }, [])
+  const invite = async () => { setStatus(''); setToken(''); const response = await fetch('/api/qms/members', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, role }) }); const value = await response.json(); if (!response.ok) { setStatus(value.error ?? 'Poziv nije poslan.'); return } setToken(value.inviteToken); setEmail(''); setStatus('Poziv je kreiran. Token prikažite korisniku sigurnim kanalom.'); refresh() }
+  const deactivate = async (id: string) => { await fetch('/api/qms/members', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ membershipId: id }) }); refresh() }
+  return <section className="mt-5 border border-[#dfe3e8] bg-white p-5 dark:border-[#2a2e33] dark:bg-[#191c20]"><div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-sm font-bold">Enterprise workspace</h2><p className="mt-1 text-xs text-[#89919a]">Članstva, onboarding spremnost i kontrola pristupa.</p></div><span className={`text-xs font-bold ${ready ? 'text-[#087f78]' : 'text-[#c91829]'}`}>{ready === null ? 'Provjera…' : ready ? 'SPREMNO' : 'POTREBNA RADNJA'}</span></div><div className="mt-5 grid gap-5 lg:grid-cols-[minmax(0,1fr)_300px]"><div><h3 className="text-xs font-bold">Članovi workspacea</h3><div className="mt-3 space-y-2">{members.length === 0 ? <p className="text-xs text-[#89919a]">Nema eksplicitnih članstava.</p> : members.map((member) => <div key={member.id} className="flex items-center justify-between border-t border-[#edf0f2] py-2 text-xs"><span><strong>{member.name}</strong><span className="ml-2 text-[#89919a]">{member.email}</span></span><button onClick={() => deactivate(member.id)} className="text-[#c91829]">Deaktiviraj</button></div>)}</div></div><div className="border-l border-[#edf0f2] pl-4"><h3 className="text-xs font-bold">Pozovi korisnika</h3><input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="email@organizacija.ba" className="mt-3 w-full border border-[#dfe3e8] px-3 py-2 text-xs" /><select value={role} onChange={(event) => setRole(event.target.value)} className="mt-2 w-full border border-[#dfe3e8] px-3 py-2 text-xs"><option value="viewer">Pregled</option><option value="editor">Uređivanje</option><option value="admin">Administrator</option></select><button onClick={invite} className="mt-2 w-full bg-[#e21b2d] px-3 py-2 text-xs font-bold text-white">Kreiraj poziv</button>{status && <p className="mt-2 text-[11px] text-[#65707b]">{status}</p>}{token && <code className="mt-2 block break-all bg-[#f5f6f8] p-2 text-[10px]">{token}</code>}</div></div></section>
+}
