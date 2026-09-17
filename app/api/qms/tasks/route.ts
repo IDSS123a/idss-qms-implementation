@@ -1,25 +1,17 @@
 import { NextResponse } from 'next/server'
-import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { sql } from 'drizzle-orm'
-import { roleForEmail, can, type QmsRole } from '@/lib/rbac'
+import { can } from '@/lib/rbac'
+import { getQmsContext } from '@/lib/qms-auth'
+import { qmsError } from '@/lib/qms-http'
 import { taskInputSchema, validationError } from '@/lib/validation/qms'
 
 export const runtime = 'nodejs'
 
-async function context(request: Request) {
-  const session = await auth.api.getSession({ headers: request.headers })
-  if (!session?.user) return null
-  const workspace = await db.execute(sql`select id from qms_workspace order by created_at asc limit 1`)
-  const storedRole = await db.execute(sql`select role from qms_user_role where user_id = ${session.user.id}::uuid limit 1`)
-  const candidateRole = String(storedRole.rows[0]?.role ?? roleForEmail(session.user.email))
-  const role = (['superadmin', 'admin', 'user'].includes(candidateRole) ? candidateRole : 'user') as QmsRole
-  return { user: session.user, role, workspaceId: workspace.rows[0]?.id as string | undefined }
-}
 
 export async function GET(request: Request) {
-  const current = await context(request)
-  if (!current) return NextResponse.json({ error: 'Prijava je obavezna.' }, { status: 401 })
+  const current = await getQmsContext(request)
+  if (!current) return qmsError('Prijava je obavezna.', 401, request.headers.get('x-request-id') || crypto.randomUUID())
   if (!current.workspaceId) return NextResponse.json({ tasks: [] })
   const status = new URL(request.url).searchParams.get('status')
   const allowedStatuses = ['open', 'in_progress', 'blocked', 'completed', 'cancelled'] as const
@@ -31,8 +23,8 @@ export async function GET(request: Request) {
 }
 
 export async function PATCH(request: Request) {
-  const current = await context(request)
-  if (!current) return NextResponse.json({ error: 'Prijava je obavezna.' }, { status: 401 })
+  const current = await getQmsContext(request)
+  if (!current) return qmsError('Prijava je obavezna.', 401, request.headers.get('x-request-id') || crypto.randomUUID())
   if (!current.workspaceId) return NextResponse.json({ error: 'QMS okruženje još nije kreirano.' }, { status: 409 })
   if (!can(current.role, 'edit')) return NextResponse.json({ error: 'Nemate dozvolu za izmjenu zadatka.' }, { status: 403 })
   const body = await request.json().catch(() => ({})) as { id?: unknown; status?: unknown }
@@ -46,8 +38,8 @@ export async function PATCH(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const current = await context(request)
-  if (!current) return NextResponse.json({ error: 'Prijava je obavezna.' }, { status: 401 })
+  const current = await getQmsContext(request)
+  if (!current) return qmsError('Prijava je obavezna.', 401, request.headers.get('x-request-id') || crypto.randomUUID())
   if (!current.workspaceId) return NextResponse.json({ error: 'QMS okruženje još nije kreirano.' }, { status: 409 })
   if (!can(current.role, 'create')) return NextResponse.json({ error: 'Nemate dozvolu za kreiranje zadatka.' }, { status: 403 })
   const parsed = taskInputSchema.safeParse(await request.json().catch(() => ({})))

@@ -3,6 +3,7 @@ import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { sql } from 'drizzle-orm'
 import { readFile } from 'node:fs/promises'
+import { checkRateLimit } from '@/lib/rate-limit'
 import path from 'node:path'
 
 export const runtime = 'nodejs'
@@ -71,6 +72,8 @@ export async function POST(request: Request) {
   if (!prompt) return new Response('Poruka nije ispravna.', { status: 400 })
   const session = await auth.api.getSession({ headers: request.headers })
   if (!session?.user) return new Response('Prijava je obavezna.', { status: 401 })
+  const rate = checkRateLimit(`chat:${session.user.id}`, 20)
+  if (!rate.allowed) return new Response('Previše zahtjeva. Pokušajte ponovo za minut.', { status: 429, headers: { 'Retry-After': '60' } })
   const workspace = await db.execute(sql`select id from qms_workspace order by created_at asc limit 1`)
   const workspaceId = workspace.rows[0]?.id as string | undefined
 
