@@ -9,7 +9,7 @@ export async function GET(request: Request) {
   const requestId = request.headers.get('x-request-id') ?? crypto.randomUUID()
   const context = await getQmsContext(request)
   if (!context) return qmsError('Prijava je obavezna.', 401, requestId)
-  const rows = await db.execute(sql`select m.id, m.user_id, m.role, m.created_at, u.name, u.email from qms_membership m join "user" u on u.id = m.user_id::text where m.workspace_id = ${context.workspaceId}::uuid order by m.created_at asc`)
+  const rows = await db.execute(sql`select m.id, m.user_id, m.role, m.created_at, u.name, u.email from qms_membership m join "user" u on u.id = m.user_id where m.workspace_id = ${context.workspaceId}::uuid order by m.created_at asc`)
   return NextResponse.json({ members: rows.rows, requestId })
 }
 
@@ -25,7 +25,7 @@ export async function POST(request: Request) {
   const token = randomBytes(32).toString('hex')
   const tokenHash = createHash('sha256').update(token).digest('hex')
   const result = await db.execute(sql`insert into qms_invitation (workspace_id, email, role, token_hash, invited_by, expires_at) values (${context.workspaceId}::uuid, ${email}, ${role}, ${tokenHash}, ${context.user.id}, now() + interval '7 days') returning id, email, role, expires_at`)
-  await db.execute(sql`insert into qms_audit_event (workspace_id, user_id, action, entity_type, metadata, request_id) values (${context.workspaceId}::uuid, ${context.user.id}::uuid, 'invite_member', 'membership', ${JSON.stringify({ email, role })}::jsonb, ${requestId})`)
+  await db.execute(sql`insert into qms_audit_event (workspace_id, user_id, action, entity_type, metadata, request_id) values (${context.workspaceId}::uuid, ${context.user.id}, 'invite_member', 'membership', ${JSON.stringify({ email, role })}::jsonb, ${requestId})`)
   return NextResponse.json({ invitation: result.rows[0], inviteToken: token, requestId }, { status: 201 })
 }
 
