@@ -10,7 +10,7 @@ export async function GET(request: Request) {
   const current = await getQmsContext(request)
   if (!current) return qmsError('Prijava je obavezna.', 401, request.headers.get('x-request-id') || crypto.randomUUID())
   if (!current.workspaceId) return NextResponse.json({ trainings: [] })
-  const trainings = await db.execute(sql`select id, reference, title, process, description, owner_id, due_date, completed_at, evidence, status, created_at, updated_at from qms_training where workspace_id = ${current.workspaceId}::uuid order by due_date asc nulls last, created_at desc`)
+  const trainings = await db.execute(sql`select id, reference, title, process, description, owner_id, due_date, completed_at, evidence, attendance_confirmed, competency_confirmed, assessment_result, status, created_at, updated_at from qms_training where workspace_id = ${current.workspaceId}::uuid order by due_date asc nulls last, created_at desc`)
   return NextResponse.json({ trainings: trainings.rows })
 }
 
