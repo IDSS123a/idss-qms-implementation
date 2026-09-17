@@ -38,9 +38,9 @@ const guideSteps: GuideStep[] = [
     details: [
       'Pristupite svim kontrolisanim dokumentima iz ISO 9001:2015 arhive',
       'Pretraživanje i filtriranje po šifri ili nazivu dokumenta',
-      'Pregledaj historiju verzija za svaki dokument',
-      'Poredi razlike između verzija',
-      'Kontroliši tok odobravanja (draft → in_review → approved → published)'
+      'Pregledajte historiju verzija za svaki dokument',
+      'Uporedite razlike između verzija',
+      'Kontrolišite tok odobravanja (draft → in_review → approved → published)'
     ],
     tips: [
       'Koristite pretragu za brže pronalaženje dokumenata',
@@ -78,12 +78,12 @@ const guideSteps: GuideStep[] = [
       'Revizijski trag svih aktivnosti u sistemu',
       'Upravljanje treningom i procjenom kompetencija',
       'Praćenje odobrenja dokumenata',
-      'Enterprise kontrole (API ključevi, krisni backup)',
+      'Enterprise kontrole (API ključevi, krizni rezervni primjerak)',
       'Pregled svih operacija po korisniku, datumu i tipu'
     ],
     tips: [
       'Samo Superadmin može pristupiti svim kontrolama',
-      'Revizijski trag je nepromenljiv i koristi se za compliance',
+      'Revizijski trag je nepromjenjiv i koristi se za usklađenost',
       'Redovno pregledajte revizijski trag',
       'Enterprise funkcije se mogu deaktivirati ako nisu potrebne'
     ]
@@ -115,11 +115,11 @@ const guideSteps: GuideStep[] = [
     icon: FileText,
     details: [
       'Pristup AI asistentnom iz bilo kojeg ekrana (desna kolona ili mobilno)',
-      'Zahtjevajte nove procedure i dokumente generisane sa AI',
+      'Zahtijevajte nove procedure i dokumente generisane pomoću AI-ja',
       'Dobijajte preporuke za poboljšanja',
       'Pretražujte postojeće procedure sa pitanjima',
       'Učitajte postojeće dokumente kao referencu',
-      'Kontekstno svesne preporuke na osnovu vašeg QMS sistema'
+      'Kontekstno svjesne preporuke na osnovu vašeg QMS sistema'
     ],
     tips: [
       'AI asistent je uvijek dostupan u desnom uglu ekrana',
@@ -207,7 +207,7 @@ export function UserGuideModal({ isOpen, onClose }: { isOpen: boolean; onClose: 
 
                 {step.tips && (
                   <div className="mt-6 rounded-2xl border border-[#dfe3e8] bg-[#fffaf0] p-4 dark:border-[#343a41] dark:bg-[#2b2517]">
-                    <h4 className="text-sm font-bold text-[#b7791f] dark:text-[#d8c58b]">Saveti i trikovi:</h4>
+                    <h4 className="text-sm font-bold text-[#b7791f] dark:text-[#d8c58b]">Savjeti i trikovi:</h4>
                     <ul className="mt-3 space-y-2">
                       {step.tips.map((tip, idx) => (
                         <li key={idx} className="flex gap-2 text-xs leading-4 text-[#6f5a2a] dark:text-[#d8c58b]">
@@ -290,7 +290,7 @@ export function UserGuideModal({ isOpen, onClose }: { isOpen: boolean; onClose: 
 
               {guideStep.tips && (
                 <>
-                  <h4 style={{ fontSize: '13px', fontWeight: 'bold', marginBottom: '8px', marginTop: '12px', color: '#b7791f' }}>Saveti i trikovi:</h4>
+                  <h4 style={{ fontSize: '13px', fontWeight: 'bold', marginBottom: '8px', marginTop: '12px', color: '#b7791f' }}>Savjeti i trikovi:</h4>
                   <ul style={{ fontSize: '11px', color: '#666', marginLeft: '20px', lineHeight: '1.6' }}>
                     {guideStep.tips.map((tip, tipIdx) => (
                       <li key={tipIdx} style={{ marginBottom: '4px' }}>
