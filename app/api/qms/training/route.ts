@@ -1,30 +1,22 @@
 import { NextResponse } from 'next/server'
-import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { sql } from 'drizzle-orm'
-import { roleForEmail, can, type QmsRole } from '@/lib/rbac'
+import { can } from '@/lib/rbac'
+import { getQmsContext } from '@/lib/qms-auth'
+import { qmsError } from '@/lib/qms-http'
 
-async function context(request: Request) {
-  const session = await auth.api.getSession({ headers: request.headers })
-  if (!session?.user) return null
-  const workspace = await db.execute(sql`select id from qms_workspace order by created_at asc limit 1`)
-  const stored = await db.execute(sql`select role from qms_user_role where user_id = ${session.user.id}::uuid limit 1`)
-  const candidate = String(stored.rows[0]?.role ?? roleForEmail(session.user.email))
-  const role = (['superadmin', 'admin', 'user'].includes(candidate) ? candidate : 'user') as QmsRole
-  return { user: session.user, role, workspaceId: workspace.rows[0]?.id as string | undefined }
-}
 
 export async function GET(request: Request) {
-  const current = await context(request)
-  if (!current) return NextResponse.json({ error: 'Prijava je obavezna.' }, { status: 401 })
+  const current = await getQmsContext(request)
+  if (!current) return qmsError('Prijava je obavezna.', 401, request.headers.get('x-request-id') || crypto.randomUUID())
   if (!current.workspaceId) return NextResponse.json({ trainings: [] })
   const trainings = await db.execute(sql`select id, reference, title, process, description, owner_id, due_date, completed_at, evidence, status, created_at, updated_at from qms_training where workspace_id = ${current.workspaceId}::uuid order by due_date asc nulls last, created_at desc`)
   return NextResponse.json({ trainings: trainings.rows })
 }
 
 export async function POST(request: Request) {
-  const current = await context(request)
-  if (!current) return NextResponse.json({ error: 'Prijava je obavezna.' }, { status: 401 })
+  const current = await getQmsContext(request)
+  if (!current) return qmsError('Prijava je obavezna.', 401, request.headers.get('x-request-id') || crypto.randomUUID())
   if (!current.workspaceId || !can(current.role, 'edit')) return NextResponse.json({ error: 'Nemate dozvolu za kreiranje obuke.' }, { status: 403 })
   const body = await request.json().catch(() => ({})) as Record<string, unknown>
   const reference = typeof body.reference === 'string' ? body.reference.trim().slice(0, 60) : ''

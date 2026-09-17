@@ -2,20 +2,20 @@ import { embedMany } from 'ai'
 import { NextResponse } from 'next/server'
 import { sql } from 'drizzle-orm'
 import { db } from '@/lib/db'
-import { auth } from '@/lib/auth'
 import { can } from '@/lib/rbac'
+import { getQmsContext } from '@/lib/qms-auth'
+import { qmsError } from '@/lib/qms-http'
 import { chunkQmsText, extractQmsText } from '@/lib/qms-extraction'
 
 export const runtime = 'nodejs'
 const MODEL = 'google/text-multilingual-embedding-002'
 
 export async function POST(request: Request) {
-  const session = await auth.api.getSession({ headers: request.headers })
-  if (!session?.user) return NextResponse.json({ error: 'Prijava je obavezna.' }, { status: 401 })
-  const workspace = await db.execute(sql`select id from qms_workspace order by created_at asc limit 1`)
-  const workspaceId = workspace.rows[0]?.id as string | undefined
-  const role = 'user'
-  if (!workspaceId || !can(role, 'upload')) return NextResponse.json({ error: 'Nemate dozvolu za indeksiranje.' }, { status: 403 })
+  const context = await getQmsContext(request)
+  const requestId = context?.requestId ?? request.headers.get('x-request-id') ?? crypto.randomUUID()
+  if (!context) return qmsError('Prijava je obavezna.', 401, requestId)
+  const workspaceId = context.workspaceId
+  if (!workspaceId || !can(context.role, 'upload')) return qmsError('Nemate dozvolu za indeksiranje.', 403, requestId)
   const form = await request.formData()
   const file = form.get('file')
   if (!(file instanceof File)) return NextResponse.json({ error: 'Fajl je obavezan.' }, { status: 422 })
